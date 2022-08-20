@@ -5,7 +5,7 @@ Colour = [255, 255, 255]
 Message = ""
 
 
-def webServer(environ, start_response):
+def webserver(environ, start_response):
     global Light, Colour, Message
     uri = wsgiref.util.request_uri(environ)
     path = uri.split("/")[3]
