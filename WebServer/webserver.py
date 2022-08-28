@@ -30,18 +30,18 @@ def webserver(environ, start_response):
     elif environ['REQUEST_METHOD'] == 'POST':
         try:
             size = int(environ['CONTENT_LENGTH'])
-            body = environ['wsgi.input'].read(size)
+            body = str(environ['wsgi.input'].read(size)).decode().strip()
 
             if path.lower() == "light":
-                Light = bool(body)
+                Light = body.lower() == "true"
                 status = "200 OK"
                 message = "Success"
             elif path.lower() == "colour":
-                Colour = list(body)
+                Colour = body.split(',', 2)
                 status = "200 OK"
                 message = "Success"
             elif path.lower() == "message":
-                Message = str(body)
+                Message = body
                 status = "200 OK"
                 message = "Success"
             else:
