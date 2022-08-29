@@ -30,14 +30,14 @@ def webserver(environ, start_response):
     elif environ['REQUEST_METHOD'] == 'POST':
         try:
             size = int(environ['CONTENT_LENGTH'])
-            body = str(environ['wsgi.input'].read(size)).decode().strip()
+            body = str(environ['wsgi.input'].read(size), "utf-8")
 
             if path.lower() == "light":
-                Light = body.lower() == "true"
+                Light = body.strip().lower() == "true"
                 status = "200 OK"
                 message = "Success"
             elif path.lower() == "colour":
-                Colour = body.split(',', 2)
+                Colour = list(map(int, body.strip().split(',', 2)))
                 status = "200 OK"
                 message = "Success"
             elif path.lower() == "message":
@@ -47,9 +47,9 @@ def webserver(environ, start_response):
             else:
                 status = "404 Not Found"
                 message = "Page Not Found"
-        except ValueError:
+        except Exception as e:
             status = "500 Internal Server Error"
-            message = "Failed"
+            message = e
 
     headers = [('Content-type', 'text/plain')]
     start_response(status, headers)
