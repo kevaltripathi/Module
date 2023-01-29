@@ -1,12 +1,12 @@
 import wsgiref.util
 
-Light = True
-Colour = [255, 255, 255]
-Message = ""
+Matrix = ["", "", "", "", "", "", "", ""]
+Title = ""
+Message = {"lineQty": "", "lines": [], "weight": []}
 
 
 def webserver(environ, start_response):
-    global Light, Colour, Message
+    global Matrix, Title, Message
     uri = wsgiref.util.request_uri(environ)
     path = uri.split("/")[3]
 
@@ -14,12 +14,12 @@ def webserver(environ, start_response):
     message = ""
 
     if environ['REQUEST_METHOD'] == 'GET':
-        if path.lower() == "light":
+        if path.lower() == "matrix":
             status = "200 OK"
-            message = Light
-        elif path.lower() == "colour":
+            message = Matrix
+        elif path.lower() == "title":
             status = "200 OK"
-            message = Colour
+            message = Title
         elif path.lower() == "message":
             status = "200 OK"
             message = Message
@@ -30,18 +30,26 @@ def webserver(environ, start_response):
     elif environ['REQUEST_METHOD'] == 'POST':
         try:
             size = int(environ['CONTENT_LENGTH'])
-            body = str(environ['wsgi.input'].read(size), "utf-8")
+            body = str(environ['wsgi.input'].read(size))
 
-            if path.lower() == "light":
-                Light = body.strip().lower() == "true"
+            if path.lower() == "matrix":
+                Matrix = body.strip(" []\n").split(',', 7)
                 status = "200 OK"
                 message = "Success"
-            elif path.lower() == "colour":
-                Colour = list(map(int, body.strip().split(',', 2)))
+            elif path.lower() == "title":
+                Title = body
                 status = "200 OK"
                 message = "Success"
             elif path.lower() == "message":
-                Message = body
+                split = body.strip(" []\n").split(',')
+                Message["lineQty"] = split[0]
+                lines = []
+                weight = []
+                for x in range(int(split[0])):
+                    lines.append(split[x + 1])
+                    weight.append(split[x + int(split[0]) + 1])
+                Message["lines"] = lines
+                Message["weight"] = weight
                 status = "200 OK"
                 message = "Success"
             else:
