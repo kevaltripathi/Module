@@ -1,4 +1,5 @@
 import wsgiref.util
+import json
 
 Matrix = ["", "", "", "", "", "", "", ""]
 Title = ""
@@ -16,13 +17,13 @@ def webserver(environ, start_response):
     if environ['REQUEST_METHOD'] == 'GET':
         if path.lower() == "matrix":
             status = "200 OK"
-            message = Matrix
+            message = json.dumps(Matrix)
         elif path.lower() == "title":
             status = "200 OK"
             message = Title
         elif path.lower() == "message":
             status = "200 OK"
-            message = Message
+            message = json.dumps(Message)
         else:
             status = "404 Not Found"
             message = "Page Not Found"
