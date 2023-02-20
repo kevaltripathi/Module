@@ -33,7 +33,7 @@ bool matrixWrite = false;
 bool ssidWrite = false;
 bool pwWrite = false;
 
-const int buttonPin = 2;
+const int buttonPin = 35;
 int currentButton;
 int previousButton;
 
