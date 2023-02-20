@@ -75,7 +75,6 @@ class ServerCallbacks : public BLEServerCallbacks {
 class CharacteristicCallbacks : public BLECharacteristicCallbacks {
 public:
   void onWrite(BLECharacteristic *chareristic, esp_ble_gatts_cb_param_t *param) override {
-
     if (chareristic->getUUID().toString() == TITLE_CHARACTERISTIC_UUID) {
       title = chareristic->getValue().c_str();
       titleWrite = true;
@@ -238,8 +237,9 @@ void setup() {
     }
   }
   
-  //button check
-  delay(5000);
+  delay(10000);
+
+  while (deviceConnected) {}
 
   char* s;
   char* p;
@@ -345,5 +345,4 @@ void loop() {
   dotMatrix();
 
   delay(1000);
-
 }
