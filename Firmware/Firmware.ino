@@ -2,7 +2,8 @@
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
-#include <WiFiMulti.h>
+#include "esp_wpa2.h"
+#include <WiFi.h>
 #include <HTTPClient.h>
 
 #include "EEPROM.h"
@@ -37,13 +38,6 @@ const int buttonPin = 35;
 int currentButton;
 int previousButton;
 
-WiFiMulti WiFiMulti;
-BLECharacteristic *titleChareristic;
-BLECharacteristic *messageCharacteristic;
-BLECharacteristic *matrixCharacteristic;
-BLECharacteristic *ssidCharacteristic;
-BLECharacteristic *pwCharacteristic;
-
 MD_MAX72XX grid = MD_MAX72XX(HARDWARE_TYPE, SS, MAX_DEVICES);
 Adafruit_ssd1306syp display(SDA,SCL);
 
@@ -59,6 +53,7 @@ StaticJsonDocument<192> dots;
 StaticJsonDocument<384> doc;
 
 unsigned long elapsed = 0;
+unsigned long refreshTime = 0;
 
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *pServer) override {
@@ -69,6 +64,7 @@ class ServerCallbacks : public BLEServerCallbacks {
     Serial.println("disconnected");
     deviceConnected = false;
     written = false;
+    pServer->getAdvertising()->start();
   }
 };
 
@@ -77,21 +73,39 @@ public:
   void onWrite(BLECharacteristic *chareristic, esp_ble_gatts_cb_param_t *param) override {
     if (chareristic->getUUID().toString() == TITLE_CHARACTERISTIC_UUID) {
       title = chareristic->getValue().c_str();
+      Serial.println("title: " + title);
       titleWrite = true;
     } else if (chareristic->getUUID().toString() == MESSAGE_CHARACTERISTIC_UUID) {
       message = chareristic->getValue().c_str();
+      DeserializationError error = deserializeJson(doc, message);
+      if (error) {
+        Serial.print("deserializeJson() failed: ");
+        Serial.println(error.c_str());
+        return;
+      }  
+      Serial.println("message: " + message);
       messageWrite = true;
     } else if (chareristic->getUUID().toString() == MATRIX_CHARACTERISTIC_UUID) {
       matrix = chareristic->getValue().c_str();
+      DeserializationError error = deserializeJson(dots, matrix);
+      if (error) {
+        Serial.print("deserializeJson() failed: ");
+        Serial.println(error.c_str());
+        return;
+      }  
+      Serial.println("matrix: " + matrix);
       matrixWrite = true;
     } else if (chareristic->getUUID().toString() == SSID_CHARACTERISTIC_UUID) {
       ssid = chareristic->getValue().c_str();
+      Serial.println("ssid: " + ssid);
       ssidWrite = true;
     } else if (chareristic->getUUID().toString() == PW_CHARACTERISTIC_UUID) {
       pw = chareristic->getValue().c_str();
+      Serial.println("pw: " + pw);
       pwWrite = true;
     }
     written = true;
+    Serial.println("written");
   }
 };
 
@@ -117,59 +131,53 @@ void apiPost(String path, String data) {
   HTTPClient http;
 
   http.begin("http://api.DOMAIN/" + path);
-  http.addHeader("Content-Type", "text/plain"); 
+  http.addHeader("Content-Type", "text/plain");
 
-  int httpCode = http.PUT(data);
+  int httpCode = http.POST(data);
   
   if(httpCode > 0) {
-    Serial.print(http.getString());
+    Serial.println(http.getString());
   } else {
-    Serial.printf("[HTTP] PUT... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
   }
   
   http.end();
 }
 
 void lcd() {
-  if (sleeping) {
-    display.clear();
-  } else {
-      int lineQty = doc["lineQty"];
-      JsonArray lines = doc["lines"];
-      JsonArray weight = doc["weight"];
+  display.clear();
+  if (!sleeping) {
+    int lineQty = doc["lineQty"];
+    JsonArray lines = doc["lines"];
+    JsonArray weight = doc["weight"];
 
-      display.clear();
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(0,0);
+    display.println(title);
 
-      display.setTextColor(WHITE);
-      display.setTextSize(2);
-      display.setCursor(0,0);
-      display.println(title); 
-      display.update(); 
-
-      int last_line = 16;
-      for (int x = 0; x <= 5; x++) {
-        if (last_line > 63) {
-          break;
-        }
-        display.setTextColor(WHITE);
-        display.setTextSize(weight[x]);
-        display.setCursor(last_line,0);
-        display.println(lines[x].as<String>()); 
-        display.update();
-        last_line += 8 * weight[x].as<int>();
+    int last_line = 16;
+    for (int x = 0; x < lineQty; x++) {
+      if (last_line > 63) {
+        break;
       }
+      display.setTextColor(WHITE);
+      display.setTextSize(weight[x]);
+      display.setCursor(0,last_line);
+      display.println(lines[x].as<String>()); 
+      last_line += 8 * weight[x].as<int>();
+    }
   }
+  display.update();
 }
 
 void dotMatrix() {
-  if (sleeping) {
-    grid.clear();
-  } else {
-    grid.clear();
-      for (int i = 0; i <= 7; i++) {
-        uint8_t row = atoi(dots[i].as<const char*>());
-        grid.setRow(i, row);
-      }
+  grid.clear();
+  if (!sleeping) {
+    for (int i = 0; i <= 7; i++) {
+      uint8_t row = dots[i].as<int>();
+      grid.setRow(i, row);
+    }
   }
 }
 
@@ -184,31 +192,31 @@ void setup() {
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
-  titleChareristic = pService->createCharacteristic(
+  BLECharacteristic *titleChareristic = pService->createCharacteristic(
     TITLE_CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
   titleChareristic->setValue("0");
   titleChareristic->setCallbacks(new CharacteristicCallbacks());
 
-  messageCharacteristic = pService->createCharacteristic(
+  BLECharacteristic *messageCharacteristic = pService->createCharacteristic(
     MESSAGE_CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
   messageCharacteristic->setValue("0");
   messageCharacteristic->setCallbacks(new CharacteristicCallbacks());
 
-  matrixCharacteristic = pService->createCharacteristic(
+  BLECharacteristic *matrixCharacteristic = pService->createCharacteristic(
     MATRIX_CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
   matrixCharacteristic->setValue("0");
   matrixCharacteristic->setCallbacks(new CharacteristicCallbacks());
 
-  ssidCharacteristic = pService->createCharacteristic(
+  BLECharacteristic *ssidCharacteristic = pService->createCharacteristic(
     SSID_CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
   ssidCharacteristic->setValue("0");
   ssidCharacteristic->setCallbacks(new CharacteristicCallbacks());
 
-  pwCharacteristic = pService->createCharacteristic(
+  BLECharacteristic *pwCharacteristic = pService->createCharacteristic(
     PW_CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
   pwCharacteristic->setValue("0");
@@ -216,10 +224,10 @@ void setup() {
 
   pService->start();
 
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  BLEAdvertising *pAdvertising = pServer->getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
-  BLEDevice::startAdvertising();
+  pAdvertising->start();
 
   if (!EEPROM.begin(EEPROM_SIZE)) {
     Serial.println("failed to init EEPROM");
@@ -232,27 +240,61 @@ void setup() {
 
     pw = "";
     int pwLength = int(EEPROM.read(32));
-    for (int i = 33; i <= pwLength; i++) {
-      pw += char(EEPROM.read(i));
+    for (int i = 1; i <= pwLength; i++) {
+      pw += char(EEPROM.read(i + 32));
     }
+
   }
-  
+
   delay(10000);
 
-  while (deviceConnected) {}
+  while (deviceConnected) {
+    delay(100);
+  }
 
-  char* s;
-  char* p;
+  if (ssidWrite && pwWrite) {
+    if (!EEPROM.begin(EEPROM_SIZE)) {
+      Serial.println("failed to init EEPROM");
+    } else {
+      EEPROM.write(0, ssid.length());
+      int addr = 1;
+      for (int i = 0; i < ssid.length(); i++) {
+        EEPROM.write(addr, ssid[i]);
+        addr += 1;
+      }
+
+      EEPROM.write(33, pw.length());
+      addr = 34;
+      for (int i = 0; i < pw.length(); i++) {
+        EEPROM.write(addr, pw[i]);
+        addr += 1;
+      }
+
+      EEPROM.commit();
+    }
+  }
+
+  ssidWrite = false;
+  pwWrite = false;
+
+  char s[ssid.length() + 1];
+  char p[pw.length() + 1];
   
-  ssid.toCharArray(s, ssid.length());
-  pw.toCharArray(p, pw.length());
-  WiFiMulti.addAP(s, p);
+  ssid.toCharArray(s, ssid.length() + 1);
+  pw.toCharArray(p, pw.length() + 1);
+  
+  Serial.println("Mac Address: " + WiFi.macAddress());
+  Serial.print("Waiting for WiFi...");
 
-  Serial.print("Waiting for WiFi... ");
+  WiFi.disconnect(true);
+  esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
+  esp_wifi_sta_wpa2_ent_set_password((uint8_t *)p, sizeof(p));
+  esp_wifi_sta_wpa2_ent_enable();  
+  WiFi.begin(s);
 
-  while(WiFiMulti.run() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
+  while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
   }
 
   Serial.println("WiFi connected");
@@ -277,13 +319,16 @@ void loop() {
         if (titleWrite) {
           apiPost("title", title);
           titleWrite = false;
-        } else if (messageWrite) {
+        }
+        if (messageWrite) {
           apiPost("message", message);
           messageWrite = false;
-        } else if (matrixWrite){
+        }
+        if (matrixWrite){
           apiPost("matrix", matrix);
           matrixWrite = true;          
-        } else if (ssidWrite && pwWrite) {
+        } 
+        if (ssidWrite && pwWrite) {
           if (!EEPROM.begin(EEPROM_SIZE)) {
             Serial.println("failed to init EEPROM");
           } else {
@@ -311,7 +356,7 @@ void loop() {
       }
     }
   } else {
-    if (millis() - elapsed > 60000) {
+    if (millis() - elapsed > 10000) {
       title = apiGet("title");
 
       message = apiGet("message");
@@ -338,11 +383,13 @@ void loop() {
     currentButton = digitalRead(buttonPin);
     if (previousButton == HIGH && currentButton == LOW) {
       sleeping = !sleeping;
+      Serial.println("sleeping: " + String(sleeping));
     }
   }
 
-  lcd();
-  dotMatrix();
-
-  delay(1000);
+  if (millis() - refreshTime > 1000) {
+    lcd();
+    dotMatrix();
+    refreshTime = millis();
+  }
 }
