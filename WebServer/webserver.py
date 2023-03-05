@@ -41,13 +41,13 @@ def webserver(environ, start_response):
     if environ['REQUEST_METHOD'] == 'GET':
         if path.lower() == "matrix":
             status = "200 OK"
-            response = json.dumps(db_get("matrix"))
+            response = db_get("matrix")
         elif path.lower() == "title":
             status = "200 OK"
             response = db_get("title")
         elif path.lower() == "message":
             status = "200 OK"
-            response = json.dumps(db_get("message"))
+            response = db_get("message")
         else:
             status = "404 Not Found"
             response = "Page Not Found"
@@ -58,7 +58,7 @@ def webserver(environ, start_response):
             body = str(environ['wsgi.input'].read(size))
 
             if path.lower() == "matrix":
-                status, response = db_commit("matrix", body.strip(" []\n").split(',', 7))
+                status, response = db_commit("matrix", json.dumps(body.strip(" []\n").split(',', 7)))
             elif path.lower() == "title":
                 status, response = db_commit("title", body.strip("\n"))
             elif path.lower() == "message":
@@ -72,7 +72,7 @@ def webserver(environ, start_response):
                     weight.append(split[x + int(split[0]) + 1])
                 message["lines"] = lines
                 message["weight"] = weight
-                status, response = db_commit("message", message)
+                status, response = db_commit("message", json.dumps(message))
             else:
                 status = "404 Not Found"
                 response = "Page Not Found"
